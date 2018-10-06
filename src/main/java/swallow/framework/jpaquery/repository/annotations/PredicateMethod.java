@@ -5,10 +5,11 @@ package swallow.framework.jpaquery.repository.annotations;
  * @author aohanhe
  *
  */
-public @interface PredicateMehtod {
+public @interface PredicateMethod {
 	/**
 	 * 生成表达式时取得对应使用的函数名
 	 * @return
 	 */
 	String value();
+	
 }

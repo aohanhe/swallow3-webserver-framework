@@ -20,30 +20,29 @@ import io.swagger.annotations.ApiModelProperty;
  *
  */
 public class BaseQueryBean {
-	@ApiModelProperty(name="排序条件",value="排序条件 例+id,+表示升序 - 表示降序")
-	private String sort;
+	
+	private String[] sorts;
 	
 
-	/**
-	 * 处理后的排序条件列表
-	 */
+	@ApiModelProperty(name="排序条件",value="排序条件 例+id,+表示升序 - 表示降序")
 	@JsonIgnore
 	private List<Order> orders;
 	
 	/**
 	 * 对排序条件进行初始化
-	 */
-	@PostConstruct
+	 */	
 	public void init() {		
 		
 		//从 sort中提取排序列表
-		if(!StringUtils.isEmpty(this.sort)) {
-			orders=Stream.of(sort.split(","))
+		if(sorts!=null) {
+			orders=Stream.of(sorts)
+				.filter(v->!StringUtils.isEmpty(v))
+				.filter(v->!((v.length()==1)&&(v=="+"||v=="-")))
 				.map(v->{
 					if(v.startsWith("+"))
-						return Order.asc(v.substring(0,v.length()-1));
+						return Order.asc(v.substring(1));
 					if(v.startsWith("-"))
-						return Order.desc(v.substring(0, v.length()-1));
+						return Order.desc(v.substring(1));
 					return Order.asc(v);
 				}).collect(Collectors.toList());
 		}else {
@@ -54,15 +53,24 @@ public class BaseQueryBean {
 	
 
 	public List<Order> getOrders() {
+		// 如果order对象没有初始化，则初始化
+		if(sorts!=null&&orders==null)
+			this.init();
 		return orders;
 	}
 
-	public String getSort() {
-		return sort;
+
+
+	public String[] getSorts() {
+		return sorts;
 	}
 
-	public void setSort(String sort) {
-		this.sort = sort;
+
+
+	public void setSorts(String[] sorts) {
+		this.sorts = sorts;
 	}
+
+	
 
 }

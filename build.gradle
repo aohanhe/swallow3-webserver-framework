@@ -26,13 +26,20 @@ repositories {
 
 dependencies {
 	compile("io.springfox:springfox-swagger2:2.9.2")
+	compile('com.querydsl:querydsl-jpa:4.2.1')
+	compile('org.apache.commons:commons-lang3:3.8')
+	
+	
+	compile('com.fasterxml.jackson.core:jackson-annotations')
+	compile('com.fasterxml.jackson.core:jackson-core')
+	compile('com.fasterxml.jackson.core:jackson-databind')
 	
 	implementation('org.springframework.boot:spring-boot-starter-data-jpa')
-	implementation('org.springframework.boot:spring-boot-starter-webflux')
+	implementation('io.projectreactor:reactor-core')
 	testImplementation('org.springframework.boot:spring-boot-starter-test')
 	testImplementation('io.projectreactor:reactor-test')
 }
 
 jar {
-	enabled = true
+	enabled = true		
 }
