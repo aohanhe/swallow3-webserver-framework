@@ -209,6 +209,25 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 
 		return list.stream().map(this::fectItemFromTuple).collect(Collectors.toList());
 	}
+	
+	
+	
+	/**
+	 * 取得满足查询的数据项
+	 * @param initQuery
+	 * @return
+	 */
+	public T getItem(Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery) {
+		var fetchQuery = this.getQuery();
+		if (initQuery != null)
+			fetchQuery = initQuery.apply(this.getQuery());
+
+		var tuple = fetchQuery.fetchOne();
+		if (tuple == null)
+			return null;
+
+		return this.fectItemFromTuple(tuple);
+	}
 
 	/**
 	 * 分页返回数据

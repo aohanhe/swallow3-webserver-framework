@@ -1,18 +1,22 @@
 package swallow.framework.entitydescript;
 
 /**
- * ÊµÌåÊôĞÔÃû
+ * å®ä½“çš„å±æ€§çš„å®šä¹‰
  * 
  * @author aohanhe
  *
  */
 public class EntityProperty {
-	// ÊôĞÔÃû
+	// åç§°
 	private String name;
-	// ÀàĞÍÃû
+	// ç±»å‹
 	private String type;
-	// jsÀàĞÍÃû
+	// jså¯¹åº”çš„ç±»å‹
 	private String jsType;
+	
+	private String cnname;
+	//æ˜¯å¦åªè¯»å­—æ®µ
+	private boolean readonly;
 
 	public EntityProperty() {
 		
@@ -22,8 +26,8 @@ public class EntityProperty {
 		this.name=name;
 		this.type=type;
 		this.jsType=jsType;
-	}
-	
+	} 
+	 
 	public String getName() {
 		return name;
 	}
@@ -47,5 +51,23 @@ public class EntityProperty {
 	public void setJsType(String jsType) {
 		this.jsType = jsType;
 	}
+
+	public String getCnname() {
+		return cnname;
+	}
+
+	public void setCnname(String cnname) {
+		this.cnname = cnname;
+	}
+
+	public boolean isReadonly() {
+		return readonly;
+	}
+
+	public void setReadonly(boolean readonly) {
+		this.readonly = readonly;
+	}
+
+	
 
 }

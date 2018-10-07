@@ -96,6 +96,16 @@ public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>
 	}
 	
 	/**
+	 * 取得满足条件的数据项
+	 * @param initQuery
+	 * @return
+	 */
+	@SuppressWarnings("unchecked")
+	public K getItem(Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery) {
+		return (K) repsitory.getItem(initQuery);
+	}
+	
+	/**
 	 * 分页取得实体对象
 	 * @param initQuery
 	 * @param page

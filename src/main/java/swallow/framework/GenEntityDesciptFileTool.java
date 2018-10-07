@@ -4,22 +4,32 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.Transient;
+import javax.persistence.Version;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +37,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import reactor.core.publisher.Flux;
 import swallow.framework.entitydescript.EntityDescript;
 import swallow.framework.entitydescript.EntityProperty;
+import swallow.framework.jpaquery.repository.annotations.CnName;
 
 @SpringBootApplication
 public class GenEntityDesciptFileTool {
@@ -50,7 +61,7 @@ public class GenEntityDesciptFileTool {
 		ClassScanTool tool=new ClassScanTool();
 		return tool.scanClassFromPackage(packageName, Entity.class);	
 	}
-	
+	   
 	/**
 	 * 生成实体的描述文件到指定的目录
 	 * @param packageName
@@ -58,7 +69,7 @@ public class GenEntityDesciptFileTool {
 	 * @throws URISyntaxException 
 	 * @throws IOException 
 	 */
-	public static void generateEntityDescriptFromPackage(String packageName,String dirPath) throws URISyntaxException, IOException {
+	public static void generateEntityDescriptFromPackage(String packageName,Class<?> baseCommonEnityClass,String dirPath) throws URISyntaxException, IOException {
 		var classLoader=GenEntityDesciptFileTool.class.getClassLoader();
 		
 		String projectDir=System.getProperty("user.dir").replace('\\', '/');
@@ -78,7 +89,7 @@ public class GenEntityDesciptFileTool {
 		// 对取得满足条件的类进行处理
 		list.stream().forEach((classInfo)->{
 			try {
-				generateEntityDescriptFromClassInfo(classInfo,outPath);
+				generateEntityDescriptFromClassInfo(classInfo,outPath,baseCommonEnityClass);
 			} catch (JsonProcessingException e) {
 				e.printStackTrace();
 			}
@@ -91,7 +102,7 @@ public class GenEntityDesciptFileTool {
 	 * @param outDirUrl
 	 * @throws JsonProcessingException 
 	 */
-	private static void generateEntityDescriptFromClassInfo(Class<?> classInfo,String outDirPath) throws JsonProcessingException {
+	private static void generateEntityDescriptFromClassInfo(Class<?> classInfo,String outDirPath,Class<?> checkOnlyIdType) throws JsonProcessingException {
 		System.out.println("扫描到类:"+classInfo.getName());
 		
 		var path=Paths.get(outDirPath, classInfo.getSimpleName()+".des").toString();
@@ -100,7 +111,19 @@ public class GenEntityDesciptFileTool {
 		descript.setName(classInfo.getSimpleName());
 		descript.setFullName(classInfo.getName());
 		
-		var props = Flux.fromArray(classInfo.getDeclaredFields())
+		// 如果不是指定类的派生类，则认为是只有id的实体
+		descript.setOnlyId(!checkOnlyIdType.isAssignableFrom(classInfo));
+				
+		
+		if(classInfo.isAnnotationPresent(CnName.class)){
+			var cnName=classInfo.getAnnotation(CnName.class);
+			Assert.isTrue(!StringUtils.isEmpty(cnName),"CnName注解的值不能为空");
+			descript.setCnname(cnName.value());
+		}
+		
+		
+		
+		var props = Flux.fromIterable(getClassAllFields(classInfo))
 			.map(GenEntityDesciptFileTool::generateEntityPropertyFromField)
 			.collect(Collectors.toList()).block();
 		
@@ -117,6 +140,22 @@ public class GenEntityDesciptFileTool {
 			System.out.println(String.format("创建类%s描述文件时出错:%s", classInfo.getName(),ex.getMessage()));
 		}
 		
+	}
+	
+	/**
+	 * 取得类的所有字段信息，包括基础类
+	 * 
+	 * @param classInfo
+	 * @return
+	 */
+	private static List<Field> getClassAllFields(Class<?> classInfo) {
+		var listFields = new ArrayList<Field>();
+		while (classInfo != null) {
+			listFields.addAll(Arrays.asList(classInfo.getDeclaredFields()));
+
+			classInfo = classInfo.getSuperclass();
+		}
+		return listFields;
 	}
 	
 	/**
@@ -146,6 +185,25 @@ public class GenEntityDesciptFileTool {
 			jsType="string";
 		
 		prop.setJsType(jsType);
+		
+		
+		//取得中文名称
+		if(field.isAnnotationPresent(CnName.class)) {
+			CnName cnName=field.getAnnotation(CnName.class);
+			Assert.isTrue(!StringUtils.isEmpty(cnName.value()),"注解CnName的值没有设置");
+			
+			prop.setCnname(cnName.value());
+		}else {
+			prop.setCnname(field.getName());
+		}
+		
+		prop.setReadonly(field.isAnnotationPresent(Transient.class)||
+				field.isAnnotationPresent(Id.class)
+				||field.isAnnotationPresent(Version.class)
+				||field.isAnnotationPresent(CreatedDate.class)
+				||field.isAnnotationPresent(CreatedBy.class)
+				||field.isAnnotationPresent(LastModifiedBy.class)
+				||field.isAnnotationPresent(LastModifiedDate.class));
 		
 		return prop;
 	}

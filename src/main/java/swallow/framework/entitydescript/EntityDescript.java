@@ -3,19 +3,28 @@ package swallow.framework.entitydescript;
 import java.util.List;
 
 /**
- * ÊµÌåÃèÊö
+ * å®ä½“å¯¹è±¡æè¿°
  * @author aohanhe
  *
  */
 public class EntityDescript {
 	/**
-	 * ÊµÌåµÄÃû³Æ
+	 * ä¸­æ–‡åç§°
+	 */
+	private String cnname;
+	/**
+	 * çŸ­åç§°
 	 */
 	private String name;
 	/**
-	 * ÊµÌåµÄ¼ÓÉÏÁË°üÃûµÄÈ«Ãû
+	 * é•¿åï¼ŒåŒ…æ‹¬äº†ä¸ºå‘½åç©ºé—´
 	 */
 	private String fullName;
+	
+	/**
+	 * æ˜¯å¦åªæ˜¯åªæ‹¥æœ‰IDçš„åŸºç¡€å®ä½“
+	 */
+	private boolean onlyId;
 	
 	private List<EntityProperty> props;
 	
@@ -24,10 +33,10 @@ public class EntityDescript {
 	}
 
 	public String getName() {
-		return name;
+		return name;  
 	}
 
-	public void setName(String name) {
+	public void setName(String name) { 
 		this.name = name;
 	}
 
@@ -46,5 +55,23 @@ public class EntityDescript {
 	public void setProps(List<EntityProperty> props) {
 		this.props = props;
 	}
+
+	public String getCnname() {
+		return cnname;
+	}
+
+	public void setCnname(String cnname) {
+		this.cnname = cnname;
+	}
+
+	public boolean isOnlyId() {
+		return onlyId;
+	}
+
+	public void setOnlyId(boolean onlyId) {
+		this.onlyId = onlyId;
+	}
+
+	
 
 }
