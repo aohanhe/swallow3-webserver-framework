@@ -4,7 +4,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -30,7 +32,7 @@ import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
-import reactor.core.publisher.Flux;
+
 import reactor.util.function.Tuple3;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
@@ -75,12 +77,12 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	/**
 	 * 实体查询的主体查询部分，包括了select 以及 from
 	 */
-	private static JPAQuery<Tuple> query;
+	private  JPAQuery<Tuple> query;
 
 	/**
 	 * 提取数据使用的映射列表
 	 */
-	private static List<Tuple2<Field, Path<?>>> fecthDataList;
+	private  List<Tuple2<Field, Path<?>>> fecthDataList;
 
 	/**
 	 * id字段的路径
@@ -90,7 +92,7 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	/**
 	 * 静态ID的path,以提高运行的效率
 	 */
-	private static Path<?> _idPath;
+	private  Path<?> _idPath;
 
 	/**
 	 * 初始化基础变量
@@ -261,11 +263,21 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 		var fecthList = new ArrayList<Tuple2<Field, Path<?>>>();
 
 		selects.add(this.mainTable); // 首先查询主表
-		boolean isWantJoin=false;
+		
 
+		Set<Integer> joinTable=new HashSet<>();
+		Set<Integer> selTable=new HashSet<>();
+		
 		for(var field:getClassAllFields(entityClassInfo)) {
 			
 			field.setAccessible(true);
+			
+			if(field.isAnnotationPresent(JoinEntity.class)) {
+				joinTable.add(field.getAnnotation(JoinEntity.class).tableId());
+			}
+			if(field.isAnnotationPresent(FieldPath.class)) {
+				selTable.add(field.getAnnotation(FieldPath.class).tableId());
+			}
 
 			if (field.isAnnotationPresent(Id.class)) {
 				_idPath = Expressions.path(idClassInfo, this.mainTable, field.getName());
@@ -275,7 +287,7 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 			if (tuple != null) {
 				fecthList.add(tuple);
 				selects.add(tuple.getT2());
-				isWantJoin=true;
+				
 			}
 
 			var joinTuple = this.getJoinExpressFromField(field);
@@ -283,10 +295,11 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 				join.add(joinTuple);
 		}
 		
-		//检查join设置是否正确
-		Assert.isTrue(isWantJoin&&join.size()!=0,
-				String.format("初始化仓库%s失败，选择语句有外表，但是没有字段@JoinEntity设置请检查是否设置了联表", this.getClass().getName()));
-		
+		selTable.forEach(tableId->{
+			Assert.isTrue(joinTable.contains(tableId),String.format("初始化仓库%s失败，选择语句有外表id=%d %s，但是没有字段@JoinEntity设置请检查是否设置了联表", 
+					this.getClass().getName(),tableId,this.tablesPathManger.getTablePathById(tableId).toString()));
+		});
+				
 
 		// 添加select语句
 		var queryTemp = factory.select(selects.toArray(new Expression[] {})).from(mainTable);
@@ -310,8 +323,10 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	 * @return
 	 */
 	private Tuple2<Field, Path<?>> getSelectExpressionFromField(Field field) {
+		
 		// 没有带Transient标签则返回空
 		if (!field.isAnnotationPresent(Transient.class)) {
+			Assert.isTrue(!field.isAnnotationPresent(FieldPath.class),"字段"+field.toString()+"没添加Transient标签但又添加了FieldPath标注");
 			return null;
 		}
 		
