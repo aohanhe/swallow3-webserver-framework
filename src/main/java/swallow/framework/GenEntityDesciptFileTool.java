@@ -1,19 +1,20 @@
 package swallow.framework;
 
+
+
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.io.Writer;
-import java.lang.annotation.Annotation;
+
 import java.lang.reflect.Field;
-import java.net.URI;
+
 import java.net.URISyntaxException;
-import java.net.URL;
+
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
-import java.util.Enumeration;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,7 +23,7 @@ import javax.persistence.Id;
 import javax.persistence.Transient;
 import javax.persistence.Version;
 
-import org.springframework.boot.SpringApplication;
+
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.data.annotation.CreatedBy;
 import org.springframework.data.annotation.CreatedDate;
@@ -169,22 +170,39 @@ public class GenEntityDesciptFileTool {
 		
 		
 		var filedType=field.getType();
-		prop.setType(field.getType().getSimpleName());
+		var javaType=field.getType().getSimpleName();
+		
 		
 		String jsType="string";
-		if(Integer.class.isAssignableFrom(filedType))
+		if(Integer.class.isAssignableFrom(filedType)||int.class.isAssignableFrom(filedType)) {
 			jsType="number";
-		if(Long.class.isAssignableFrom(filedType))
+			javaType="Integer";
+		}
+		if(Long.class.isAssignableFrom(filedType)||long.class.isAssignableFrom(filedType)) {
 			jsType="number";
-		if(Float.class.isAssignableFrom(filedType))
+			javaType="Long";
+		}
+		if(Float.class.isAssignableFrom(filedType)||float.class.isAssignableFrom(filedType)) {
 			jsType="number";
-		if(Double.class.isAssignableFrom(filedType))
+			javaType="Float";
+		}
+		if(Double.class.isAssignableFrom(filedType)||double.class.isAssignableFrom(filedType)) {
 			jsType="number";
-		
+			javaType="Double";
+		}
+		if(Byte.class.isAssignableFrom(filedType)||byte.class.isAssignableFrom(filedType)) {
+			jsType="number";
+			javaType="Byte";
+		}
+		if(Boolean.class.isAssignableFrom(filedType)||boolean.class.isAssignableFrom(filedType)) {
+			jsType="number";
+			javaType="Boolean";
+		}
 		if(Date.class.isAssignableFrom(filedType))
 			jsType="string";
 		
 		prop.setJsType(jsType);
+		prop.setType(javaType);
 		
 		
 		//取得中文名称
