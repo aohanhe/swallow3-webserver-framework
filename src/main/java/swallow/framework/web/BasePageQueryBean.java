@@ -1,5 +1,6 @@
 package swallow.framework.web;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 
 /**
@@ -7,6 +8,7 @@ import io.swagger.annotations.ApiModelProperty;
  * @author aohanhe
  *
  */
+@ApiModel(value="基础分页查询对象",description="带有分页信息的查询对象")
 public class BasePageQueryBean extends BaseQueryBean{
 	@ApiModelProperty(name="页码号",value="页码号，从1开始")
 	private int page=1;

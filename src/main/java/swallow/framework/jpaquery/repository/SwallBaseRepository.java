@@ -1,25 +1,27 @@
 package swallow.framework.jpaquery.repository;
 
+import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.annotation.PostConstruct;
-import javax.persistence.Entity;
 import javax.persistence.EntityManager;
 import javax.persistence.Id;
 import javax.persistence.Transient;
 import javax.transaction.Transactional;
 
+
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
@@ -28,75 +30,52 @@ import com.querydsl.core.types.EntityPath;
 import com.querydsl.core.types.Expression;
 import com.querydsl.core.types.Ops;
 import com.querydsl.core.types.Path;
+import com.querydsl.core.types.Predicate;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 
-import reactor.util.function.Tuple3;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
+import swallow.framework.exception.SwallowConstrainException;
 import swallow.framework.exception.SwallowException;
 import swallow.framework.jpaentity.IOnlyIdEntity;
 import swallow.framework.jpaquery.repository.annotations.FieldPath;
+import swallow.framework.jpaquery.repository.annotations.JoinEntities;
 import swallow.framework.jpaquery.repository.annotations.JoinEntity;
 import swallow.framework.web.PageListData;
 
-/**
- * 基础数据仓库类
- * 
- * @author aohanhe
- *
- * @param <T> 实体对象类型
- * @param <K> 实体对象的ID的类型
- */
-public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
-
+public class SwallBaseRepository<T extends IOnlyIdEntity > {
 	private static final Logger logger = LoggerFactory.getLogger(SwallBaseRepository.class);
-
 	@Autowired
 	protected EntityManager em;
 
 	private Class<T> entityClassInfo;
 
-	private Class<K> idClassInfo;
+	private Class<Serializable> idClassInfo;
 
 	private EntityPath<T> mainTable;
-	/**
-	 * 表格路径管理器
-	 */
-	@Autowired
-	protected ITablesPathMangerAware tablesPathManger;
 
 	/**
 	 * querydsl构建工具
 	 */
 
 	protected JPAQueryFactory factory;
+	
+	/**
+	 * id字段的路径
+	 */
+	private Path<Serializable> idPath;
 
 	/**
 	 * 实体查询的主体查询部分，包括了select 以及 from
 	 */
-	private  JPAQuery<Tuple> query;
+	private JPAQuery<Tuple> query;
 
 	/**
 	 * 提取数据使用的映射列表
 	 */
-	private  List<Tuple2<Field, Path<?>>> fecthDataList;
+	private List<EntityFieldFetchor> fecthDataList;
 
-	/**
-	 * id字段的路径
-	 */
-	private Path<K> idPath;
-
-	/**
-	 * 静态ID的path,以提高运行的效率
-	 */
-	private  Path<?> _idPath;
-
-	/**
-	 * 初始化基础变量
-	 */
 	@SuppressWarnings("unchecked")
 	@PostConstruct
 	protected void init() {
@@ -104,30 +83,204 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 
 		factory = new JPAQueryFactory(em);
 
-		// 检查tablesPathManger已经实例化
-		Assert.notNull(tablesPathManger, "请实现ITablesPathMangerAware实例化对象");
-
 		ParameterizedType type = (ParameterizedType) this.getClass().getGenericSuperclass();
 		var actualType = type.getActualTypeArguments();
 
 		Assert.isTrue(actualType != null && actualType.length > 0, "没有取得实例化参数的class信息");
 
 		entityClassInfo = (Class<T>) actualType[0];
-		idClassInfo = (Class<K>) actualType[1];
+		idClassInfo = (Class<Serializable>) actualType[1];
 
 		// 取得主表表达式
 		mainTable = (EntityPath<T>) this.getMainTableExpression();
 		Assert.notNull(mainTable, "getMainTableExpression返回的主表表达式为空");
 
 		// 初始化查询
-		if (query == null)
-			initQueryByEnityClassInfo();
-
-		idPath = (Path<K>) _idPath;
+		initQuery();
 	}
-	
-	protected JPAQuery<Tuple> getQuery() {
-		return this.query.clone();
+
+	// 初始化查询
+	private void initQuery() {
+		var selects = new ArrayList<Expression<?>>();
+		var joins = new ArrayList<EntityJoinDescribe>();
+		var fecthList = new ArrayList<EntityFieldFetchor>();
+
+		// 分析实体对象数据
+		selects.add(this.mainTable); // 首先查询主表
+
+		for (var field : getClassAllFields(entityClassInfo)) {
+			field.setAccessible(true);
+
+			if (field.isAnnotationPresent(JoinEntity.class)) {
+				var join = this.getJoinInfoFromField(field, entityClassInfo);
+				if (join != null)
+					joins.add(join);
+			}
+			if (field.isAnnotationPresent(FieldPath.class)) {
+				var fectchor = this.getFetchorInfoFromField(field, entityClassInfo);
+				fecthList.add(fectchor);
+			}
+			
+			if (field.isAnnotationPresent(Id.class)) {
+				this.idPath = Expressions.path(idClassInfo, this.mainTable, field.getName());
+			}
+		}
+
+		// 分析实体类上的join注解
+		joins.addAll(getJoinInfoListFromClassInfo(entityClassInfo));
+
+		for (var fector : fecthList) {
+			boolean bIshas = false;
+			var table = fector.getTable();
+			for (var join : joins) {
+
+				if (join.isEqtable(table)) {
+					bIshas = true;
+					break;
+				}
+			}
+			if (!bIshas) {
+				throw new RuntimeException(String.format("初始化仓库%s失败，选择语句有外表%s，但是没有字段@JoinEntity设置请检查是否设置了联表",
+						this.getClass().getName(), table.toString()));
+			}
+		}
+
+		// 生成查询语句
+		fecthList.forEach(fecthor -> {
+			selects.add(fecthor.getEntityPath());
+		});
+
+		// 添加select语句
+		var queryTemp = factory.select(selects.toArray(new Expression[] {})).from(mainTable);
+
+		for (var join : joins) {
+			queryTemp = join.addToQuery(queryTemp);
+		}
+
+		this.query = queryTemp;
+		this.fecthDataList = fecthList;
+
+		logger.info(String.format("初始化SwallBaseRepository(%s)查询语句为:%s", this.getClass().getName(), query.toString()));
+	}
+
+	/**
+	 * 从类信息中取得联结信息
+	 * @param classInfo
+	 * @return
+	 */
+	private List<EntityJoinDescribe> getJoinInfoListFromClassInfo(Class<?> classInfo) {
+		Assert.notNull(classInfo, "参数classInfo不允许为空");
+		if (!(classInfo.isAnnotationPresent(JoinEntities.class)||classInfo.isAnnotationPresent(JoinEntity.class)))
+			return new ArrayList<>();
+
+		
+		var joinEntities = classInfo.getDeclaredAnnotationsByType(JoinEntity.class);
+
+		var stream = Stream.of(joinEntities).map(joinInfo -> {
+			EntityPath<?> mainTable = this.mainTable;
+
+			if (!joinInfo.mainEnityClass().equals(Object.class)) {
+				mainTable = TablesPathManger.getTablePathByClass(joinInfo.mainEnityClass(), joinInfo.mainEntityAlias());
+			}
+
+			String name = joinInfo.name();
+
+			String mainFieldName = joinInfo.mainFiledName();
+			Class<?> fieldType = joinInfo.fieldType();
+
+			Assert.hasText(mainFieldName, "JoinEntity 注解的mainFiledName一定要设置");
+			Assert.isTrue(!StringUtils.isEmpty(name), "JoinEntity 注解的name一定要设置");
+			var table = TablesPathManger.getTablePathByClass(joinInfo.joinEntityClass(), joinInfo.joinEntityAlias());
+
+			var mainTablePath = Expressions.path(fieldType, (Path) mainTable, mainFieldName);
+			var jointTablePath = Expressions.path(fieldType, (Path) table, name);
+
+			Predicate extendsOn = null;
+			if (!StringUtils.isEmpty(joinInfo.extOnMethod())) {
+				String strMethod = joinInfo.extOnMethod();
+				try {
+					var method = classInfo.getDeclaredMethod(strMethod);
+					extendsOn = (Predicate) method.invoke(null);
+					return new EntityJoinDescribe(table,mainTablePath, jointTablePath, extendsOn);
+				} catch (Exception e) {
+					throw new RuntimeException(String.format("生成实体类%s的leftjoin语句出错，extOnMethod=‘%s’取得条件值出错%s",
+							classInfo.getName(), strMethod, e.getMessage()), e);
+				}
+			} else {
+				return new EntityJoinDescribe(table, mainTablePath, jointTablePath);
+			}
+		});
+
+		return stream.collect(Collectors.toList());
+	}
+
+	/**
+	 * 从字段信息中提取join信息
+	 * 
+	 * @param field
+	 * @return
+	 */
+	@SuppressWarnings("unused")
+	private EntityJoinDescribe getJoinInfoFromField(Field field, Class<?> classInfo) {
+		if (!field.isAnnotationPresent(JoinEntity.class))
+			return null;
+
+		JoinEntity joinInfo = field.getAnnotation(JoinEntity.class);
+		Class<?> joinEntity = joinInfo.joinEntityClass();
+		Assert.notNull(joinEntity, "没有@JoinEntity，需要给joinEntityClass赋值");
+
+		var table = TablesPathManger.getTablePathByClass(joinEntity, joinInfo.joinEntityAlias());
+
+		Class<?> fieldType = field.getType();
+		String name = joinInfo.name();
+
+		Assert.hasText(name, "JoinEntity 注解的name一定要设置");
+
+		var mainTablePath = Expressions.path(fieldType, (Path) this.mainTable, field.getName());
+		var jointTablePath = Expressions.path(fieldType, (Path) table, name);
+
+		if (!StringUtils.isEmpty(joinInfo.extOnMethod())) {
+			String strMethod = joinInfo.extOnMethod();
+			try {
+				var method = classInfo.getDeclaredMethod(strMethod);
+				Predicate extendsOn = (Predicate) method.invoke(null);
+				return new EntityJoinDescribe(table, mainTablePath, jointTablePath, extendsOn);
+			} catch (Exception e) {
+				throw new RuntimeException(String.format("生成实体类%s的leftjoin语句出错，extOnMethod=‘%s’取得条件值出错%s",
+						classInfo.getName(), strMethod, e.getMessage()), e);
+			}
+		} else {
+			return new EntityJoinDescribe(table, mainTablePath, jointTablePath);
+		}
+	}
+
+	/**
+	 * 从字段中提取数据提取信息
+	 * 
+	 * @param field
+	 * @param classInfo
+	 * @return
+	 */
+	public EntityFieldFetchor getFetchorInfoFromField(Field field, Class<?> classInfo) {
+		// 没有带Transient标签则返回空
+		if (!field.isAnnotationPresent(Transient.class)) {
+			Assert.isTrue(!field.isAnnotationPresent(FieldPath.class),
+					"字段" + field.toString() + "没添加Transient标签但又添加了FieldPath标注");
+			return null;
+		}
+
+		var fieldPath = field.getAnnotation(FieldPath.class);
+		String name = fieldPath.name();
+		Class<?> joinEntity = fieldPath.joinEntityClass();
+
+		Assert.notNull(joinEntity, "没有@JoinEntity，需要给joinEntityClass赋值");
+		Assert.isTrue(!StringUtils.isEmpty(name), "字段" + field.toString() + "的FieldPath 注解的name一定要设置");
+
+		var table = TablesPathManger.getTablePathByClass(joinEntity, fieldPath.joinEntityAlias());
+
+		var express = Expressions.path(field.getType(), (Path) table, name);
+
+		return new EntityFieldFetchor(field, express, table);
 	}
 
 	/**
@@ -135,7 +288,45 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	 * 
 	 * @return
 	 */
-	protected abstract EntityPath<?> getMainTableExpression();
+	protected EntityPath<?> getMainTableExpression() {
+		return TablesPathManger.getTablePathByClass(this.entityClassInfo, null);
+	}
+
+	/**
+	 * 取得类的所有字段信息，包括基础类
+	 * 
+	 * @param classInfo
+	 * @return
+	 */
+	private List<Field> getClassAllFields(Class<?> classInfo) {
+		var listFields = new ArrayList<Field>();
+		while (classInfo != null) {
+			listFields.addAll(Arrays.asList(classInfo.getDeclaredFields()));
+
+			classInfo = classInfo.getSuperclass();
+		}
+		return listFields;
+	}
+
+	// 从tuple取得item数据
+	public T fectItemFromTuple(Tuple tuple) {
+		T item = (T) tuple.get(this.mainTable);
+		fecthDataList.forEach(fetch -> {
+			try {
+				fetch.getField().set(item, tuple.get(fetch.getEntityPath()));
+			} catch (Exception e) {
+				logger.error("从tuple提取数据失败:" + e.getMessage(), e);
+			}
+		});
+
+		return item;
+	}
+	
+	protected JPAQuery<Tuple> getQuery() {
+		return this.query.clone();
+	}
+
+	
 
 	/**
 	 * 通过ID取得实体对象
@@ -143,15 +334,15 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	 * @param id
 	 * @return
 	 */
-	public T getItemById(K id) {
+	public T getItemById(Serializable id) {
 		var idValue = Expressions.constant(id);
 		var pre = Expressions.predicate(Ops.EQ, this.idPath, idValue);
-		var result = this.getQuery().where(pre).fetchOne();
+		var result = this.getQuery().where(pre).limit(5).fetch();
 		
 
-		if (result == null)
+		if (result == null||result.size()==0)
 			return null;
-		return this.fectItemFromTuple(result);
+		return this.fectItemFromTuple(result.get(0));
 	}
 
 	/**
@@ -160,25 +351,60 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	 * @param id
 	 */
 	@Transactional
-	public long deleteItemById(K id) {
+	public long deleteItemById(Serializable id) {
+		return deleteItemById(id,null);
+	}
+	
+	/**
+	 * 通过ID删除对应的记录
+	 * 
+	 * @param id
+	 */
+	@Transactional
+	public long deleteItemById(Serializable id,Predicate predicate) {
 		var idValue = Expressions.constant(id);
+		
 		var pre = Expressions.predicate(Ops.EQ, this.idPath, idValue);
+		var query=factory.delete(mainTable).where(pre);
+		if(predicate!=null)
+			query=query.where(predicate);
 
-		return factory.delete(mainTable).where(pre).execute();
+		return query.execute();
+	}
+
+	@Transactional
+	public T updateItem(T entity) throws SwallowException {
+		return updateItem(entity,null);
 	}
 
 	@Transactional
 	@SuppressWarnings("unchecked")
-	public T updateItem(T entity) throws SwallowException {
+	public T updateItem(T entity,Predicate predicate) throws SwallowException {
 		try {
+			if(predicate!=null)
+			{
+				var query=this.getQuery();
+				var idValue = Expressions.constant(entity.getId());
+				var idwhere = Expressions.predicate(Ops.EQ, this.idPath,idValue );
+				long count=query.where(predicate)
+					.where(idwhere).fetchCount();
+				if(count==0) 
+					throw new SwallowException("更新ID="+entity.getId()+"对象时出错：没有操作权限");
+			}			
 			
 			em.merge(entity);			
 
 			// 重新取得记录，以更新对应的值
-			return this.getItemById((K)(Long)entity.getId());
+			return this.getItemById(entity.getId());
 
-		} catch (Exception ex) {
-			throw new SwallowException("更新实体对象时出错：" + ex.getMessage(), ex);
+		}catch (Exception ex) {
+			var cause=ex.getCause();
+			if(cause != null && ConstraintViolationException.class.isAssignableFrom(cause.getClass())) {
+				var constraErr=(ConstraintViolationException)cause;
+				throw new SwallowConstrainException("更新对象时出错,违反唯一约束"+constraErr.getConstraintName(), ex,
+						constraErr.getConstraintName());
+			}else
+			  throw new SwallowException("更新对象时出错：" + ex.getMessage(), ex);
 		}
 	}
 
@@ -186,11 +412,19 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 	public T insertItem(T entity) throws SwallowException {
 		try {
 			em.persist(entity);
-			K id = (K) (Long) entity.getId();
+			Serializable id = entity.getId();
 			// 重新取得记录，以更新对应的值
 			return this.getItemById(id);
-		} catch (Exception ex) {
-			throw new SwallowException("插入实体对象时出错：" + ex.getMessage(), ex);
+		}		
+		catch (Exception ex) {
+			var cause=ex.getCause();
+			if(ConstraintViolationException.class.isAssignableFrom(cause.getClass())) {
+				var constraErr=(ConstraintViolationException)cause;		
+				
+				throw new SwallowConstrainException("插入对象时出错,违反唯一约束:"+constraErr.getConstraintName(), ex,
+						constraErr.getConstraintName());
+			}else
+			  throw new SwallowException("插入对象时出错：" + ex.getMessage(), ex);
 		}
 	}
 
@@ -254,162 +488,4 @@ public abstract class SwallBaseRepository<T extends IOnlyIdEntity, K> {
 		return new PageListData<T>(pageSize, res.getTotal(), items);
 	}
 
-	/**
-	 * 通过classInfo来初始化查询
-	 */
-	private void initQueryByEnityClassInfo() {
-		var selects = new ArrayList<Expression<?>>();
-		var join = new ArrayList<Tuple3<EntityPath<?>, Path<?>, Path<?>>>();
-		var fecthList = new ArrayList<Tuple2<Field, Path<?>>>();
-
-		selects.add(this.mainTable); // 首先查询主表
-		
-
-		Set<Integer> joinTable=new HashSet<>();
-		Set<Integer> selTable=new HashSet<>();
-		
-		for(var field:getClassAllFields(entityClassInfo)) {
-			
-			field.setAccessible(true);
-			
-			if(field.isAnnotationPresent(JoinEntity.class)) {
-				joinTable.add(field.getAnnotation(JoinEntity.class).tableId());
-			}
-			if(field.isAnnotationPresent(FieldPath.class)) {
-				selTable.add(field.getAnnotation(FieldPath.class).tableId());
-			}
-
-			if (field.isAnnotationPresent(Id.class)) {
-				_idPath = Expressions.path(idClassInfo, this.mainTable, field.getName());
-			}
-
-			var tuple = this.getSelectExpressionFromField(field);
-			if (tuple != null) {
-				fecthList.add(tuple);
-				selects.add(tuple.getT2());
-				
-			}
-
-			var joinTuple = this.getJoinExpressFromField(field);
-			if (joinTuple != null)
-				join.add(joinTuple);
-		}
-		
-		selTable.forEach(tableId->{
-			Assert.isTrue(joinTable.contains(tableId),String.format("初始化仓库%s失败，选择语句有外表id=%d %s，但是没有字段@JoinEntity设置请检查是否设置了联表", 
-					this.getClass().getName(),tableId,this.tablesPathManger.getTablePathById(tableId).toString()));
-		});
-				
-
-		// 添加select语句
-		var queryTemp = factory.select(selects.toArray(new Expression[] {})).from(mainTable);
-
-		// 添加join语句
-		for (var joinTuple : join) {
-			var eqField = Expressions.predicate(Ops.EQ, joinTuple.getT2(), joinTuple.getT3());
-			queryTemp = queryTemp.leftJoin(joinTuple.getT1()).on(eqField);
-		}
-
-		if (fecthDataList == null)
-			fecthDataList = fecthList;
-
-		query = queryTemp;
-	}
-
-	/**
-	 * 从字段取得路径表达式
-	 * 
-	 * @param field
-	 * @return
-	 */
-	private Tuple2<Field, Path<?>> getSelectExpressionFromField(Field field) {
-		
-		// 没有带Transient标签则返回空
-		if (!field.isAnnotationPresent(Transient.class)) {
-			Assert.isTrue(!field.isAnnotationPresent(FieldPath.class),"字段"+field.toString()+"没添加Transient标签但又添加了FieldPath标注");
-			return null;
-		}
-		
-		Assert.isTrue(field.isAnnotationPresent(FieldPath.class), "字段"+field.toString()+"添加了Transient标签的字段需要添加FieldPath标注");
-
-		var fieldPath = field.getAnnotation(FieldPath.class);
-		String name = fieldPath.name();
-		int tableId = fieldPath.tableId();
-
-		Assert.isTrue(!StringUtils.isEmpty(name), "字段"+field.toString()+"的FieldPath 注解的name一定要设置");
-		Assert.isTrue(tableId >= 0, "FieldPath 注解的tableId设置要在于或等0");
-
-		var table = this.tablesPathManger.getTablePathById(tableId);
-		Assert.notNull(table, String.format("请配置TablesPathManger,确保tableId=%d有正确表达式返回值 ", tableId));
-		var express = Expressions.path(field.getType(), (Path) table, name);
-
-		return Tuples.of(field, express);
-	}
-
-	/**
-	 * 从字段注解取得字段对应的联结语句元组
-	 * 
-	 * @param field
-	 * @return
-	 */
-	private Tuple3<EntityPath<?>, Path<?>, Path<?>> getJoinExpressFromField(Field field) {
-		// 没有注解直接返回
-		if (!field.isAnnotationPresent(JoinEntity.class))
-			return null;
-
-		var join = field.getAnnotation(JoinEntity.class);
-		String name = join.name();
-		int tableId = join.tableId();
-
-		Assert.isTrue(!StringUtils.isEmpty(name), "JoinEntity 注解的name一定要设置");
-		Assert.isTrue(tableId >= 0, "JoinEntity 注解的tableId设置要在于或等0");
-
-		var table = this.tablesPathManger.getTablePathById(tableId);
-		Assert.notNull(table, String.format("请配置TablesPathManger,确保tableId=%d有正确表达式返回值 ", tableId));
-
-		var mainTablePath = Expressions.path(field.getType(), (Path) this.mainTable, field.getName());
-		var jointTablePath = Expressions.path(field.getType(), (Path) table, name);
-
-		return Tuples.of(table, mainTablePath, jointTablePath);
-	}
-
-	// 从tuple取得item数据
-	public T fectItemFromTuple(Tuple tuple) {
-		T item = (T) tuple.get(this.mainTable);
-		fecthDataList.forEach(fetch -> {
-			try {
-				fetch.getT1().set(item, tuple.get(fetch.getT2()));
-			} catch (Exception e) {
-				logger.error("从tuple提取数据失败:" + e.getMessage(), e);
-			}
-		});
-
-		return item;
-	}
-
-	/**
-	 * 取得类的所有字段信息，包括基础类
-	 * 
-	 * @param classInfo
-	 * @return
-	 */
-	public List<Field> getClassAllFields(Class<?> classInfo) {
-		var listFields = new ArrayList<Field>();
-		while (classInfo != null) {
-			listFields.addAll(Arrays.asList(classInfo.getDeclaredFields()));
-
-			classInfo = classInfo.getSuperclass();
-		}
-		return listFields;
-	}
-
-	public EntityManager getEm() {
-		return em;
-	}
-
-	public JPAQueryFactory getFactory() {
-		return factory;
-	}
-
-	
 }

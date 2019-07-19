@@ -5,7 +5,7 @@ package swallow.framework.exception;
  * @author aohanhe
  *
  */
-public class SwallowException extends Exception{
+public class SwallowException extends RuntimeException{
 
 	private static final long serialVersionUID = 2744853534788968021L;
 	

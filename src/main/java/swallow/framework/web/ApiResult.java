@@ -2,8 +2,11 @@ package swallow.framework.web;
 
 
 
+import java.io.Serializable;
+
 import org.springframework.util.Assert;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 
 /**
@@ -11,9 +14,17 @@ import io.swagger.annotations.ApiModelProperty;
  * @author aohanhe
  *
  */
-public class ApiResult <T> extends BaseApiResult{
-	@ApiModelProperty(name="负载数据")
+@ApiModel(value="标准结果集",description="标准结果，带有执行代码（0表示成功）,错误信息并带有返回结果数据data")
+public class ApiResult <T> extends BaseApiResult implements Serializable{
+	
+	private static final long serialVersionUID = -5963397321998888554L;
+	
+	@ApiModelProperty(name="结果数据")
 	private T data = null;
+	
+	public ApiResult() {
+		
+	}
 	
 	public T getData() {
 		return data;
@@ -68,5 +79,7 @@ public class ApiResult <T> extends BaseApiResult{
 		re.setData(data);
 		return re;
 	}
+	
+	
 
 }

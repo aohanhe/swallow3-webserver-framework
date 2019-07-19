@@ -12,19 +12,22 @@ import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
+import springfox.documentation.annotations.ApiIgnore;
 
 /**
  * 查询bean对象的基础类
  * @author aohanhe
  *
  */
+@ApiModel(value="查询对象",description="向服务器传递查询要求")
 public class BaseQueryBean {
 	
+	@ApiModelProperty("查询条件列表")
 	private String[] sorts;
-	
 
-	@ApiModelProperty(name="排序条件",value="排序条件 例+id,+表示升序 - 表示降序")
 	@JsonIgnore
 	private List<Order> orders;
 	

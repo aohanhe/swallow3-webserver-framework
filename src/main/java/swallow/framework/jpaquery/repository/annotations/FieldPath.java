@@ -19,8 +19,14 @@ public @interface FieldPath {
 	 */
 	String name() default "";
 	/**
-	 * 对应的表ID值
+	 * 对应的表实体对象
 	 * @return
 	 */
-	int tableId() default -1;
+	Class<?> joinEntityClass();
+	
+	/**
+	 * 联结实体的别名 不设置使用默认值
+	 * @return
+	 */
+	String joinEntityAlias() default "";
 }

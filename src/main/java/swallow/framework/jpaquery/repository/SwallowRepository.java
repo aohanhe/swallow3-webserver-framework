@@ -2,18 +2,18 @@ package swallow.framework.jpaquery.repository;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.ParameterizedType;
+
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import javax.annotation.PostConstruct;
-import javax.persistence.EntityManager;
+
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.data.domain.Sort.Direction;
 import org.springframework.data.domain.Sort.Order;
 import org.springframework.util.Assert;
@@ -29,14 +29,15 @@ import com.querydsl.core.types.Path;
 import com.querydsl.core.types.Predicate;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.impl.JPAQuery;
-import com.querydsl.jpa.impl.JPAQueryFactory;
+
 
 import reactor.core.publisher.Flux;
-import swallow.framework.exception.SwallowException;
+
 import swallow.framework.jpaentity.IOnlyIdEntity;
 import swallow.framework.jpaquery.repository.annotations.FieldPath;
 import swallow.framework.jpaquery.repository.annotations.Gt;
 import swallow.framework.jpaquery.repository.annotations.Gte;
+import swallow.framework.jpaquery.repository.annotations.IgnorePredicate;
 import swallow.framework.jpaquery.repository.annotations.Like;
 import swallow.framework.jpaquery.repository.annotations.Lt;
 import swallow.framework.jpaquery.repository.annotations.Lte;
@@ -55,7 +56,7 @@ import swallow.framework.web.PageListData;
  * @author aohanhe
  *
  */
-public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends SwallBaseRepository<T,K> {	
+public abstract class SwallowRepository<T extends IOnlyIdEntity> extends SwallBaseRepository<T> {	
 	private static final Logger logger = LoggerFactory.getLogger(SwallowRepository.class);
 
 	/**
@@ -64,8 +65,20 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 	 * @return
 	 */
 	public List<T> getAllItemByQuerybean(BaseQueryBean queryBean){
+		return getAllItemByQuerybean(queryBean,null);
+	}
+	
+	/**
+	 * 通过querybean返回所有数据
+	 * @param queryBean
+	 * @return
+	 */
+	public List<T> getAllItemByQuerybean(BaseQueryBean queryBean,Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery){
 		var query=this.getQuery();
 		query=addPredicateAndSortFromQueryBean(query, queryBean);
+		if(initQuery!=null) {
+			query=initQuery.apply(query);
+		}
 		var res=query.fetch();
 		if(res==null) return null;
 		
@@ -78,8 +91,21 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 	 * @return
 	 */
 	public PageListData<T> getAllItemPageByQuerybean(BasePageQueryBean queryBean){
+		return getAllItemPageByQuerybean(queryBean,null);
+	}
+	
+	/**
+	 * 通过querybean分页返回数据
+	 * @param queryBean
+	 * @return
+	 */
+	public PageListData<T> getAllItemPageByQuerybean(BasePageQueryBean queryBean,Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery){
 		var query=this.getQuery();
 		query=addPredicateAndSortFromQueryBean(query, queryBean);
+		
+		if(initQuery!=null) {
+			query=initQuery.apply(query);
+		}
 		
 		var res=query.fetchResults();
 		if(res==null) return null;
@@ -95,7 +121,7 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 	 * @param queryBean
 	 * @return
 	 */
-	private JPAQuery<Tuple> addPredicateAndSortFromQueryBean(JPAQuery<Tuple> query, BaseQueryBean queryBean) {
+	public JPAQuery<Tuple> addPredicateAndSortFromQueryBean(JPAQuery<Tuple> query, BaseQueryBean queryBean) {
 		Assert.notNull(query, "参数query不能为空");
 
 		// 如果查询bean为空，直接返回
@@ -106,7 +132,7 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 
 		Assert.notNull(mainTable, "主表表达式没有设置，请使用getMainTableExpression返回");
 
-		Class<?> beanClassInfo = queryBean.getClass();
+		
 
 		// 生成查询条件
 		BooleanBuilder where=this.createWhereFromQueryBean(queryBean);
@@ -173,6 +199,10 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 	private Optional<Pair<Character, Predicate>> createConditionFromField(BaseQueryBean queryBean, Field field)
 			throws RuntimeException {
 		try {
+			if(field.isAnnotationPresent(IgnorePredicate.class)){
+				return Optional.empty();
+			}
+
 			boolean isAnd = !field.isAnnotationPresent(Or.class);
 			boolean notIgnoreNull = field.isAnnotationPresent(NotIgnoreNull.class);
 
@@ -189,40 +219,46 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 			if (field.isAnnotationPresent(FieldPath.class)) {
 				FieldPath fieldPath = field.getAnnotation(FieldPath.class);
 				var nFieldName = fieldPath.name();
-				var tableId = fieldPath.tableId();
+				var enityClass = fieldPath.joinEntityClass();
 
 				if (!StringUtils.isEmpty(nFieldName))
 					fieldName = nFieldName;
-				if (tableId >= 0) {
-					tableExpression = this.tablesPathManger.getTablePathById(tableId);
-					Assert.notNull(tableExpression, String.format("tablesPathManger没有正确返回id=%d的表达式对象", tableId));
-				}
+				
+				tableExpression =TablesPathManger.getTablePathByClass(enityClass, fieldPath.joinEntityAlias());				
 			}
 
 			Predicate pre = null;
-
+			
+			
 			if (field.isAnnotationPresent(PredicateMethod.class)) {
 				pre = getPredicateFromMehtod(queryBean, field.getAnnotation(PredicateMethod.class));
 			}
+			else
+			{
+				Path nodePath = Expressions.path(field.getType(), (Path) tableExpression, fieldName);
+				
+				if(value==null&notIgnoreNull) {
+					pre=this.getPredicateFromIsNull(nodePath);
+				}else {
 
-			Path nodePath = Expressions.path(field.getType(), (Path) tableExpression, fieldName);
+					// 根据操作符生成操作
+					if (field.isAnnotationPresent(Gt.class)) {
+						pre = this.getPredicateFromGt(nodePath, value);
+					} else if (field.isAnnotationPresent(Gte.class)) {
+						pre = this.getPredicateFromGte(nodePath, value);
+					} else if (field.isAnnotationPresent(Lt.class)) {
+						pre = this.getPredicateFromLt(nodePath, value);
+					} else if (field.isAnnotationPresent(Lte.class)) {
+						pre = this.getPredicateFromLte(nodePath, value);
+					} else if (field.isAnnotationPresent(Like.class)) {
+						var likeInfo = field.getAnnotation(Like.class);
+						pre = this.getPredicateFromLike(nodePath, value, likeInfo.isStartWith());
+					} else
+						pre = this.getPredicateFromEq(nodePath, value);
 
-			// 根据操作符生成操作
-			if (field.isAnnotationPresent(Gt.class)) {
-				pre = this.getPredicateFromGt(nodePath, value);
-			} else if (field.isAnnotationPresent(Gte.class)) {
-				pre = this.getPredicateFromGte(nodePath, value);
-			} else if (field.isAnnotationPresent(Lt.class)) {
-				pre = this.getPredicateFromLt(nodePath, value);
-			} else if (field.isAnnotationPresent(Lte.class)) {
-				pre = this.getPredicateFromLte(nodePath, value);
-			} else if (field.isAnnotationPresent(Like.class)) {
-				var likeInfo = field.getAnnotation(Like.class);
-				pre = this.getPredicateFromLike(nodePath, value, likeInfo.isStartWith());
-			}else
-				pre = this.getPredicateFromEq(nodePath, value);
-
-			Assert.notNull(pre, "没有取得对应的Predicate表达式");
+					Assert.notNull(pre, "没有取得对应的Predicate表达式");
+				}
+			}
 
 			return Optional.of(Pair.of(isAnd ? 'a' : 'o', pre));
 		} catch (Exception ex) {
@@ -269,6 +305,16 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 		var method = queryBean.getClass().getMethod(name);
 		method.setAccessible(true);
 		return (Predicate) method.invoke(queryBean);
+	}
+	
+	/**
+	 * 节点是空
+	 * @param nodePath
+	 * @return
+	 */
+	@SuppressWarnings("unused")
+	private Predicate getPredicateFromIsNull(Path nodePath) {
+		return Expressions.predicate(Ops.IS_NULL, nodePath);
 	}
 
 	/**
@@ -367,14 +413,12 @@ public abstract class SwallowRepository<T extends IOnlyIdEntity,K> extends Swall
 			if (field.isAnnotationPresent(FieldPath.class)) {
 				FieldPath fieldPath = field.getAnnotation(FieldPath.class);
 				var nFieldName = fieldPath.name();
-				var tableId = fieldPath.tableId();
+				var entityClass=fieldPath.joinEntityClass();
 
 				if (!StringUtils.isEmpty(nFieldName))
 					fieldName = nFieldName;
-				if (tableId >= 0) {
-					tableExpression = this.tablesPathManger.getTablePathById(tableId);
-					Assert.notNull(tableExpression, String.format("tablesPathManger没有正确返回id=%d的表达式对象", tableId));
-				}
+				tableExpression = TablesPathManger.getTablePathByClass(entityClass, fieldPath.joinEntityAlias());
+				
 			}
 			
 			OrderSpecifier res=null;

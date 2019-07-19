@@ -1,0 +1,1 @@
+copy .\build\libs\*-0.0.3*.jar D:\代码\校园空调\代码\后端\air-c-iotsystem\libs\

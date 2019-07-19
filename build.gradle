@@ -1,32 +1,24 @@
-buildscript {
-	ext {
-		springBootVersion = '2.0.5.RELEASE'
-	}
-	repositories {
-		mavenCentral()
-	}
-	dependencies {
-		classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
-	}
+plugins {
+	id 'org.springframework.boot' version '2.1.6.RELEASE'
+	id 'java'
 }
 
-apply plugin: 'java'
-apply plugin: 'eclipse'
-apply plugin: 'org.springframework.boot'
 apply plugin: 'io.spring.dependency-management'
 
 group = 'swallow3'
-version = '0.0.1-SNAPSHOT'
+version = '0.0.3-SNAPSHOT'
 sourceCompatibility = 10
+targetCompatibility = 10
 
 repositories {
-	mavenCentral()
+	mavenLocal()
+    mavenCentral()
 }
 
 
 dependencies {
 	compile("io.springfox:springfox-swagger2:2.9.2")
-	compile('com.querydsl:querydsl-jpa:4.2.1')
+	implementation('com.querydsl:querydsl-jpa:4.2.1')	
 	compile('org.apache.commons:commons-lang3:3.8')
 	
 	
@@ -40,6 +32,13 @@ dependencies {
 	testImplementation('io.projectreactor:reactor-test')
 }
 
+
+
 jar {
 	enabled = true		
+}
+
+// 设置使用utf8文件格式
+tasks.withType(JavaCompile) { 
+        options.encoding = "UTF-8" 
 }

@@ -4,17 +4,24 @@ import java.util.List;
 
 import org.springframework.util.Assert;
 
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+
 /**
  * 分页列表数据
  * @author aohanhe
  *
  */
+@ApiModel(value="分页列表结果对象",description="分布查询时返回的查询结果对象")
 public class PageListData <T>{
 	//数据列表
+	@ApiModelProperty("数据结果列表")
 	private List<T> items;
 	//数据总量
+	@ApiModelProperty("符合查询条件的数据总量")
 	private long total;
 	//每页的大小
+	@ApiModelProperty("符合查询条件的数据总页数")
 	private int pageSize;
 	
 	public PageListData(int pageSize,long total,List<T> items) {

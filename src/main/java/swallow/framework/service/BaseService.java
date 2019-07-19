@@ -2,6 +2,7 @@ package swallow.framework.service;
 
 
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.function.Function;
 
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.Assert;
 
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.Predicate;
 import com.querydsl.jpa.impl.JPAQuery;
 
 import swallow.framework.exception.SwallowException;
@@ -30,7 +32,7 @@ import swallow.framework.web.PageListData;
  * @param <I> 主键的数据类型
  */
 @SuppressWarnings("rawtypes")
-public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>{
+public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity>{
 	
 	private static final Logger log = LoggerFactory.getLogger(BaseService.class);
 
@@ -43,8 +45,17 @@ public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>
 	 * @return
 	 */
 	@SuppressWarnings("unchecked")
-	public K getItemById(I id) {
+	public K getItemById(Serializable  id) {
 		return (K) repsitory.getItemById(id);
+	}
+	
+	/**
+	 * 通过ID，删除实体对象
+	 * @param id
+	 * @return
+	 */
+	public long deleteItemById(Serializable id) {
+		return deleteItemById(id,null);
 	}
 	
 	/**
@@ -52,10 +63,11 @@ public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>
 	 * @param id
 	 */
 	@SuppressWarnings("unchecked")
-	public void deleteItemById(I id) {
-		repsitory.deleteItemById(id);
-		log.debug(String.format("Id=%d的实体对象被删除了", id));
-	}	
+	public long deleteItemById(Serializable id,Predicate restrictPredicate) {
+		long re= repsitory.deleteItemById(id,restrictPredicate);
+		log.debug(String.format("Id=%d的实体对象"+(re!=0?"被删除了":"删除失败"), id));
+		return re;
+	}
 	
 	/**
 	 * 列新实体对象
@@ -120,13 +132,31 @@ public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>
 	}
 	
 	/**
+	 * 通过querybean返回所有的数据
+	 * @param queryBean
+	 * @return
+	 */
+	public List<K> getAllItemByQuerybean(BaseQueryBean queryBean){
+		return this.getAllItemByQuerybean(queryBean,null);
+	}
+	
+	/**
 	 * 通过querybean返回所有数据
 	 * @param queryBean
 	 * @return
 	 */
 	@SuppressWarnings("unchecked")
-	public List<K> getAllItemByQuerybean(BaseQueryBean queryBean){
-		return repsitory.getAllItemByQuerybean(queryBean);
+	public List<K> getAllItemByQuerybean(BaseQueryBean queryBean,Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery){
+		return repsitory.getAllItemByQuerybean(queryBean,initQuery);
+	}
+	
+	/**
+	 * 通过queryben返回所有数据
+	 * @param queryBean
+	 * @return
+	 */
+	public PageListData<K> getAllItemPageByQuerybean(BasePageQueryBean queryBean){
+		return this.getAllItemPageByQuerybean(queryBean,null);
 	}
 	
 	/**
@@ -135,8 +165,8 @@ public class BaseService <T extends SwallowRepository,K extends IOnlyIdEntity,I>
 	 * @return
 	 */
 	@SuppressWarnings("unchecked")
-	public PageListData<T> getAllItemPageByQuerybean(BasePageQueryBean queryBean){
-		return repsitory.getAllItemPageByQuerybean(queryBean);
+	public PageListData<K> getAllItemPageByQuerybean(BasePageQueryBean queryBean,Function<JPAQuery<Tuple>, JPAQuery<Tuple>> initQuery){
+		return repsitory.getAllItemPageByQuerybean(queryBean,initQuery);
 	}
 
 	public T getRepsitory() {
