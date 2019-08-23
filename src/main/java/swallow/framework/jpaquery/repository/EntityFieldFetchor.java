@@ -43,7 +43,10 @@ public class EntityFieldFetchor {
 		return table;
 	}
 	
-	
+	@Override
+	public String toString() {
+		return String.format("字段:%s 对应表:%s 类型:%s", this.field.getName(),this.table.toString(),this.field.getType().getSimpleName());
+	}
 	 
 
 }

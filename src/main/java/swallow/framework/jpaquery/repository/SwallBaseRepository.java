@@ -51,7 +51,7 @@ public class SwallBaseRepository<T extends IOnlyIdEntity > {
 
 	private Class<T> entityClassInfo;
 
-	private Class<Serializable> idClassInfo;
+	//private Class<Serializable> idClassInfo;
 
 	private EntityPath<T> mainTable;
 
@@ -89,7 +89,7 @@ public class SwallBaseRepository<T extends IOnlyIdEntity > {
 		Assert.isTrue(actualType != null && actualType.length > 0, "没有取得实例化参数的class信息");
 
 		entityClassInfo = (Class<T>) actualType[0];
-		idClassInfo = (Class<Serializable>) actualType[1];
+		//idClassInfo = (Class<Serializable>) actualType[1];
 
 		// 取得主表表达式
 		mainTable = (EntityPath<T>) this.getMainTableExpression();
@@ -122,7 +122,7 @@ public class SwallBaseRepository<T extends IOnlyIdEntity > {
 			}
 			
 			if (field.isAnnotationPresent(Id.class)) {
-				this.idPath = Expressions.path(idClassInfo, this.mainTable, field.getName());
+				this.idPath = Expressions.path(Serializable.class, this.mainTable, field.getName());
 			}
 		}
 
@@ -160,7 +160,9 @@ public class SwallBaseRepository<T extends IOnlyIdEntity > {
 		this.query = queryTemp;
 		this.fecthDataList = fecthList;
 
-		logger.info(String.format("初始化SwallBaseRepository(%s)查询语句为:%s", this.getClass().getName(), query.toString()));
+		if(logger.isDebugEnabled()){
+			logger.debug(String.format("初始化SwallBaseRepository(%s)查询语句为:%s", this.getClass().getName(), query.toString()));			
+		}
 	}
 
 	/**
@@ -315,7 +317,9 @@ public class SwallBaseRepository<T extends IOnlyIdEntity > {
 			try {
 				fetch.getField().set(item, tuple.get(fetch.getEntityPath()));
 			} catch (Exception e) {
-				logger.error("从tuple提取数据失败:" + e.getMessage(), e);
+				logger.error(String.format("仓库%s从tuple提取数据失败 字段名:%s 字段类型:%s  字段路径:%s  : ", 
+					this.getClass().getName(),fetch.getField().getName()
+						,fetch.getField().getType().getSimpleName(),fetch.getEntityPath().toString()) + e.getMessage(), e);
 			}
 		});
 
